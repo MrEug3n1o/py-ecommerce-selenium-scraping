@@ -50,16 +50,19 @@ def setup_driver() -> webdriver.Chrome:
 
 def save_to_csv(filename: str, products: List[Product]) -> None:
     filepath = f"{filename}.csv"
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["title", "description", "price",
-                         "rating", "num_of_reviews"])
+    try:
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["title", "description", "price",
+                             "rating", "num_of_reviews"])
 
-        for product in products:
-            writer.writerow([product.title, product.description,
-                             product.price, product.rating,
-                             product.num_of_reviews])
-    print(f"[INFO] saved {len(products)} products to {filepath}")
+            for product in products:
+                writer.writerow([product.title, product.description,
+                                 product.price, product.rating,
+                                 product.num_of_reviews])
+        print(f"[INFO] saved {len(products)} products to {filepath}")
+    except IOError as e:
+        print(f"[ERROR] Could not write to {filepath}: {e}")
 
 
 def handle_cookies(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
@@ -87,10 +90,7 @@ def scrape_single_page(driver: webdriver.Chrome,
     try:
         first_product = long_wait.until(
             expected_conditions.presence_of_element_located(
-                (
-                    By.CSS_SELECTOR,
-                    product_cards_selector
-                )
+                (By.CSS_SELECTOR, product_cards_selector)
             )
         )
         driver.execute_script("arguments[0].scrollIntoView(true);",
@@ -98,8 +98,7 @@ def scrape_single_page(driver: webdriver.Chrome,
         print("[INFO] Scroll to products is done")
 
     except TimeoutException:
-        print("[WARNING] TimeOut: Products are not loaded"
-              "for 20 seconds. Scraping skipped.")
+        print(f"[WARNING] TimeOut: Products not loaded for {url}. Skipping.")
         save_to_csv(filename, [])
         return
 
@@ -114,7 +113,6 @@ def scrape_single_page(driver: webdriver.Chrome,
             )
 
             if not more_button.is_displayed():
-                print("[PAGINATION] PAGINATION is completed (button hidden)")
                 break
 
             old_count = len(driver.find_elements(By.CSS_SELECTOR,
@@ -130,12 +128,8 @@ def scrape_single_page(driver: webdriver.Chrome,
                     product_cards_selector)) > old_count
             )
 
-        except TimeoutException:
-            print("[PAGINATION] PAGINATION is completed (Timeout)")
-            break
-        except Exception as e:
-            print(f"[PAGINATION] PAGINATION is completed"
-                  f"(Exception: {type(e).__name__})")
+        except (TimeoutException, Exception):
+            # Pagination ends when button is no longer clickable/visible
             break
 
     long_wait.until(expected_conditions.presence_of_all_elements_located(
@@ -145,7 +139,7 @@ def scrape_single_page(driver: webdriver.Chrome,
 
     products = []
 
-    for card in tqdm(product_elements, desc=f"[Parse] {filename}"):
+    for card in tqdm(product_elements, desc=f"[Parse] {filename}", leave=False):
         try:
             title = card.find_element(By.CSS_SELECTOR, "a.title").text
             description = card.find_element(By.CSS_SELECTOR,
@@ -174,7 +168,7 @@ def scrape_single_page(driver: webdriver.Chrome,
                     By.CSS_SELECTOR,
                     "p.review-count").text.split()[0]
                 num_of_reviews = int(reviews_text)
-            except NoSuchElementException:
+            except (NoSuchElementException, IndexError, ValueError):
                 num_of_reviews = 0
 
             products.append(Product(
@@ -185,8 +179,6 @@ def scrape_single_page(driver: webdriver.Chrome,
                 num_of_reviews=num_of_reviews,
             ))
 
-        except NoSuchElementException:
-            continue
         except Exception:
             continue
 
@@ -194,19 +186,19 @@ def scrape_single_page(driver: webdriver.Chrome,
 
 
 def get_all_products() -> None:
+    driver = None
     try:
         driver = setup_driver()
-
         for filename, url in PAGES_TO_SCRAPE.items():
             print(f"[INFO] scraping {filename}")
             scrape_single_page(driver, url, filename)
     except Exception as e:
-        print(f"[ERROR] {e}")
+        print(f"[ERROR] Global error: {e}")
     finally:
-        if "driver" in locals() and driver:
+        if driver:
             driver.quit()
             print("[INFO] driver has been closed")
 
 
 if __name__ == "__main__":
-        get_all_products()
+    get_all_products()
